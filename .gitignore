@@ -1,0 +1,37 @@
+# Dependências
+/node_modules
+/server/node_modules
+
+# Segredos — nunca commitar. Qualquer .env/chave, exceto os *.example.
+.env
+*.env
+!*.env.example
+*.pem
+*.key
+/server/.env
+/litellm/litellm.env
+
+# Notas com credenciais coladas em texto (dump de WhatsApp com chave real)
+/task.md
+
+# Config local do Claude Code (pessoal)
+/.claude/settings.local.json
+
+# Build
+/dist
+/out-tsc
+/.angular
+/.ngcache
+/.angular_rootowned_bak
+*_rootowned_bak/
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+
+# Editores / SO
+.idea
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db

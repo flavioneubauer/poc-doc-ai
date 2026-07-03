@@ -1,0 +1,49 @@
+# LiteLLM Gateway — modelos servidos ao nosso proxy Node (provider `litellm`).
+#
+# OCI via ASSINATURA NATIVA (Signature v1) usando a .pem do ~/.oci/config.
+# Vantagem sobre o endpoint OpenAI-compat da OCI: alcança Cohere chat e embeddings,
+# que o caminho compat não entrega. O LiteLLM expõe tudo como OpenAI-compatible.
+#
+# `model_name` é o alias que o combo/nosso backend envia; `model: oci/...` é o id real.
+model_list:
+  - model_name: oci-llama-3.3-70b
+    litellm_params:
+      model: oci/meta.llama-3.3-70b-instruct
+      oci_region: os.environ/OCI_REGION
+      oci_user: os.environ/OCI_USER
+      oci_fingerprint: os.environ/OCI_FINGERPRINT
+      oci_tenancy: os.environ/OCI_TENANCY
+      oci_key_file: os.environ/OCI_KEY_FILE
+      oci_compartment_id: os.environ/OCI_COMPARTMENT_ID
+
+  - model_name: oci-llama-3.2-90b-vision
+    litellm_params:
+      model: oci/meta.llama-3.2-90b-vision-instruct
+      oci_region: os.environ/OCI_REGION
+      oci_user: os.environ/OCI_USER
+      oci_fingerprint: os.environ/OCI_FINGERPRINT
+      oci_tenancy: os.environ/OCI_TENANCY
+      oci_key_file: os.environ/OCI_KEY_FILE
+      oci_compartment_id: os.environ/OCI_COMPARTMENT_ID
+
+  # Cohere chat — só possível pelo caminho NATIVO (o compat da OCI bloqueia com 400).
+  - model_name: oci-cohere-command
+    litellm_params:
+      model: oci/cohere.command-latest
+      oci_region: os.environ/OCI_REGION
+      oci_user: os.environ/OCI_USER
+      oci_fingerprint: os.environ/OCI_FINGERPRINT
+      oci_tenancy: os.environ/OCI_TENANCY
+      oci_key_file: os.environ/OCI_KEY_FILE
+      oci_compartment_id: os.environ/OCI_COMPARTMENT_ID
+
+  # OpenAI pelo mesmo gateway — aparece na UI com custo/logs. Alias distinto do
+  # provider `openai` direto do backend (evita colisão de id no combo).
+  - model_name: lite-gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  # Ignora params não suportados por um provedor (ex.: stream_options) em vez de quebrar.
+  drop_params: true
