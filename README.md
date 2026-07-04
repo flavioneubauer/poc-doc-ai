@@ -1,8 +1,11 @@
 # POC — Doc AI Local 🔒
 
 Prova de conceito em **Angular 20 (standalone)** que demonstra **processamento de
-documentos 100% no navegador**, sem backend e **sem enviar nenhum dado para APIs
-externas**.
+documentos 100% no navegador** — OCR e extração **local, sem backend e sem enviar
+nenhum dado para APIs externas**. Por cima disso há uma **camada opcional de análise
+por LLM** (proxy próprio + gateway LiteLLM), acionada **explícita e posteriormente ao
+OCR**, com **guardrails de LGPD** que mascaram dado pessoal antes de qualquer envio.
+Veja [Arquitetura](#-arquitetura-em-3-camadas).
 
 O usuário faz upload de um **PDF, JPG ou PNG**; a aplicação renderiza o
 documento, **pré-processa a imagem** (para melhorar a leitura), executa **OCR
@@ -23,10 +26,42 @@ número, e **validação dos dígitos verificadores** do CNPJ. Veja
 
 ---
 
+## 🏗️ Arquitetura em 3 camadas
+
+Cada camada é **opcional acima da anterior** — a camada 1 sozinha já é uma demo
+funcional. Este README documenta a **camada 1**.
+
+```
+Navegador (Angular 20, standalone + signals)
+  ├── Camada 1 · OCR local: pdf.js + tesseract.js + heurísticas   ← funciona SEM backend
+  └── Camada 2/3 · Análise por LLM (opcional, explícita, pós-OCR):
+        → server/  (proxy Node, guarda as chaves)         → server/README.md
+        → litellm/ (gateway :4000, OpenAI-compat)         → litellm/README.md
+             └── Guardrails de LGPD (Presidio + content filter):
+                 mascara CPF/CNPJ/PIS/e-mail/nome; bloqueia injection e conteúdo nocivo
+```
+
+- **Camada 2 — [`server/`](server/README.md):** proxy Node que guarda as chaves e
+  roteia por request para OpenAI/OCI (modelo selecionável no front).
+- **Camada 3 — [`litellm/`](litellm/README.md):** gateway OpenAI-compat com
+  **guardrails de PII/LGPD ligados por padrão** — mascara dado pessoal brasileiro
+  (CPF/CNPJ/PIS com dígito verificador, e-mail, nome…) **antes** de sair ao LLM, e
+  re-hidrata na resposta. Detalhes: [`litellm/presidio/README.md`](litellm/presidio/README.md).
+
+> **Regra de ouro:** conteúdo do documento é processado **local por padrão**; só vai
+> a um LLM externo de forma **explícita e posterior ao OCR**, passando pelos guardrails.
+> ⚠️ Os guardrails atuam no **texto**, não no **anexo** — enviar o PDF/imagem cru a um
+> modelo de visão manda a PII sem máscara (ver o roadmap do Presidio).
+
+---
+
 ## ✅ Garantias de privacidade
 
-- O **conteúdo do documento nunca sai do navegador**. Não há `HttpClient`, não
-  há upload, não há servidor.
+- Na **camada 1 (padrão)**, o **conteúdo do documento nunca sai do navegador**: não
+  há `HttpClient`, não há upload, não há servidor. Só quando a **análise por LLM** é
+  acionada (camada 2/3, opt-in) o **texto** vai ao backend — e aí os **guardrails
+  mascaram a PII antes de sair**. O documento em si (imagem/PDF) só vai a um modelo se
+  você escolher explicitamente enviá-lo.
 - O PDF é processado por **pdf.js** num **web worker local** (copiado de
   `node_modules` para `/assets` na build — sem CDN).
 - O OCR roda em **WebAssembly no próprio navegador**.
@@ -52,13 +87,17 @@ número, e **validação dos dígitos verificadores** do CNPJ. Veja
 # 1) Instalar dependências
 npm install
 
-# 2) Subir o servidor de desenvolvimento
+# 2) Subir o front (dev server em http://localhost:17000)
 npm start
-# (atalho para `ng serve`)
+# (atalho para `ng serve`; faz proxy de /api → :13001)
 
 # 3) Abrir no navegador
-# http://localhost:4200
+# http://localhost:17000
 ```
+
+> **Camadas opcionais (LLM):** para ligar a análise por IA, suba o proxy
+> (`server/`) e, opcionalmente, o gateway + guardrails (`litellm/`). Passo a passo em
+> [`server/README.md`](server/README.md) e [`litellm/README.md`](litellm/README.md).
 
 ### Build de produção
 
@@ -227,8 +266,9 @@ Assim, **nada** é buscado fora da aplicação.
 
 ## 🧭 Como evoluir esta POC
 
-A POC para no OCR + heurísticas. Os próximos passos mantêm o princípio
-**"local-first"**, adicionando inteligência sem abrir mão da privacidade.
+Os próximos passos mantêm o princípio **"local-first"**, adicionando inteligência
+sem abrir mão da privacidade. Os itens 1–3 seguem como roadmap; o item 4 (**análise
+por LLM**) **já está implementado** — ver [Arquitetura](#-arquitetura-em-3-camadas).
 
 ### 1. Classificação de documentos com Transformers.js
 
@@ -265,18 +305,21 @@ Com os embeddings, monte um índice **no próprio navegador** (ex.: vetores em
 _"mostre documentos vencidos da empresa X"_ sem servidor. Para escala maior,
 bibliotecas como `hnswlib-wasm` ou `voy` (Rust/WASM) fazem ANN no cliente.
 
-### 4. Integração futura com LLMs (Claude/GPT) — **somente após o OCR**
+### 4. Análise por LLM (Claude/GPT/OCI) — **implementada** ✅
 
-Quando fizer sentido enviar dados a um LLM, faça-o de forma **explícita,
-controlada e posterior ao OCR**:
+**Já construída** nas camadas `server/` + `litellm/` (ver
+[Arquitetura](#-arquitetura-em-3-camadas)). O envio a um LLM é **explícito,
+controlado e posterior ao OCR**:
 
 - O OCR + extração continuam **locais**; só o **texto já reconhecido** (ou um
   resumo/campos selecionados) é enviado, **com consentimento do usuário**.
 - Use o LLM para tarefas que as heurísticas não cobrem: normalização de razão
   social, validação cruzada de campos, perguntas em linguagem natural sobre o
   documento, ou structured output.
-- Recomendado: rodar a chamada num **backend próprio** (proxy) que guarda a
-  chave de API e aplica _redaction_ (remoção de PII) antes do envio.
+- Feito: a chamada roda num **backend próprio** (`server/`) que guarda a chave, e o
+  **gateway LiteLLM** aplica **guardrails de PII/LGPD** (Presidio) que mascaram
+  CPF/CNPJ/e-mail/nome **antes do envio** — além de secret detection, prompt injection
+  e moderação de saída. Ver [`litellm/presidio/README.md`](litellm/presidio/README.md).
 
 Exemplo conceitual com a API da Anthropic (modelo recente: **Claude Opus 4.8**,
 id `claude-opus-4-8`), com `tool use` para forçar saída estruturada:
