@@ -47,3 +47,96 @@ model_list:
 litellm_settings:
   # Ignora params não suportados por um provedor (ex.: stream_options) em vez de quebrar.
   drop_params: true
+  # ---- Fase 2b: não persistir conteúdo de mensagem nos logs (LGPD) -----------
+  # Loga metadados/tokens/custo, mas redige prompt/resposta. Defense-in-depth
+  # (o proxy_server_request cru pode escapar em alguns caminhos — bugs #16336/#9664).
+  turn_off_message_logging: true
+  redact_messages_in_exceptions: true
+  # ---- Fase 3a: prompt injection (OSS) — heurística + similaridade -----------
+  # Roda pre_call em todo request e bloqueia entrada maliciosa. Sem llm_api_check
+  # (não exige um modelo extra). Se pegar texto legítimo de documento, afrouxar.
+  callbacks: ["detect_prompt_injection"]
+  prompt_injection_params:
+    heuristics_check: true
+    similarity_check: true
+
+# ---- Guardrail de PII/LGPD (Microsoft Presidio) -----------------------------
+# default_on: true  → aplica em TODO request que passa pelo gateway (postura LGPD
+#                     por padrão: dado pessoal é mascarado ANTES de sair p/ o LLM).
+# output_parse_pii  → re-hidrata os valores na RESPOSTA (o usuário vê o dado real;
+#                     o log fica mascarado). Requer os containers presidio-* de pé.
+# Entidades BR_* vêm dos recognizers custom (litellm/presidio/analyzer/). CPF/CNPJ/
+# PIS são validados por DV (score 1.0 só se o número for válido).
+# ORGANIZATION fica de fora de propósito: mascará-la esconderia a razão social.
+guardrails:
+  - guardrail_name: "presidio-lgpd-br"
+    litellm_params:
+      guardrail: presidio
+      mode: "pre_call"
+      default_on: true
+      presidio_language: "pt"
+      output_parse_pii: true
+      pii_entities_config:
+        BR_CPF: "MASK"
+        BR_CNPJ: "MASK"
+        BR_PIS: "MASK"
+        BR_CNH: "MASK"
+        BR_CNS: "MASK"
+        BR_CEP: "MASK"
+        BR_PLACA: "MASK"
+        CREDIT_CARD: "MASK"
+        EMAIL_ADDRESS: "MASK"
+        PHONE_NUMBER: "MASK"
+        IP_ADDRESS: "MASK"
+        PERSON: "MASK"
+        LOCATION: "MASK"
+      presidio_score_thresholds:
+        ALL: 0.4
+
+  # ---- Fase 2a: segredos/credenciais no prompt (LiteLLM Content Filter, OSS) --
+  # Mascara chave/senha coladas junto do documento ANTES de ir ao LLM.
+  - guardrail_name: "secrets-input"
+    litellm_params:
+      guardrail: litellm_content_filter
+      mode: "pre_call"
+      default_on: true
+      patterns:
+        - pattern_type: "prebuilt"
+          pattern_name: "aws_access_key"
+          action: "MASK"
+        - pattern_type: "prebuilt"
+          pattern_name: "aws_secret_key"
+          action: "MASK"
+        - pattern_type: "prebuilt"
+          pattern_name: "github_token"
+          action: "MASK"
+        - pattern_type: "regex"
+          pattern: "sk-[A-Za-z0-9_-]{16,}"
+          name: "llm_api_key"
+          action: "MASK"
+        - pattern_type: "regex"
+          pattern: "-----BEGIN[A-Z ]+PRIVATE KEY-----"
+          name: "private_key"
+          action: "MASK"
+
+  # ---- Fase 3b: moderação da SAÍDA (LiteLLM Content Filter, heurística OSS) ----
+  # threshold "high" p/ minimizar falso-positivo. denied_medical/legal_advice fica
+  # DE FORA de propósito (a POC processa doc clínico — bloquearia o caso de uso).
+  - guardrail_name: "moderation-output"
+    litellm_params:
+      guardrail: litellm_content_filter
+      mode: "post_call"
+      default_on: true
+      categories:
+        - category: "harmful_self_harm"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "high"
+        - category: "harmful_violence"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "high"
+        - category: "harmful_illegal_weapons"
+          enabled: true
+          action: "BLOCK"
+          severity_threshold: "high"

@@ -18,10 +18,49 @@ services:
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ${HOME}/.oci/cert.pem:/keys/oci.pem:ro   # chave privada de assinatura (só leitura)
+    environment:
+      # URLs internas (não são segredo) do guardrail de PII. O guardrail em si
+      # é ligado no config.yaml (default_on). Ver litellm/presidio/README.md.
+      PRESIDIO_ANALYZER_API_BASE: "http://presidio-analyzer:3000"
+      PRESIDIO_ANONYMIZER_API_BASE: "http://presidio-anonymizer:3000"
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     depends_on:
       db:
         condition: service_healthy
+      presidio-analyzer:
+        condition: service_healthy
+      presidio-anonymizer:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---- Guardrail de PII/LGPD (Microsoft Presidio, OSS) ------------------------
+  # analyzer: imagem custom (pt-BR + recognizers brasileiros com DV) — ver
+  #           litellm/presidio/analyzer/. anonymizer: imagem oficial (mascara).
+  presidio-analyzer:
+    build:
+      context: ./presidio/analyzer
+    container_name: presidio-analyzer
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:3000/health').status==200 else sys.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+    restart: unless-stopped
+
+  presidio-anonymizer:
+    image: mcr.microsoft.com/presidio-anonymizer:latest
+    container_name: presidio-anonymizer
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:3000/health').status==200 else sys.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     restart: unless-stopped
 
   # Postgres — necessário para a UI (keys, times, uso, logs) e para persistir estado.

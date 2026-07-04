@@ -46,6 +46,36 @@ key), e o backend reiniciado.
 (`UI_USERNAME`/`UI_PASSWORD` que você definir no `litellm.env`). A UI exige o Postgres (serviço
 `db` do compose); sem ele o login falha com "Check UI_USERNAME/UI_PASSWORD".
 
+## Guardrails de PII/LGPD (o stack completo)
+
+O gateway tem **quatro guardrails ligados por padrão** (`default_on`), todos
+**OSS** e configurados em `config.yaml`. Rodam em todo request que passa pelo
+LiteLLM:
+
+| Camada | Guardrail | O que faz | Modo |
+| --- | --- | --- | --- |
+| **PII** | `presidio-lgpd-br` | mascara CPF/CNPJ/PIS (com DV), e-mail, telefone, nome… e **re-hidrata** na resposta | `pre_call` |
+| **Segredos** | `secrets-input` | mascara chave/senha (`sk-`, AWS, GitHub, PEM) coladas no prompt | `pre_call` |
+| **Injeção** | `detect_prompt_injection` | **bloqueia** prompt injection (heurística + similaridade) | `pre_call` |
+| **Moderação** | `moderation-output` | **bloqueia** saída nociva (self-harm/violência/armas) | `post_call` |
+
+Mais **log mascarado** (`turn_off_message_logging`): metadados/tokens são logados,
+o conteúdo da mensagem não.
+
+- A camada de **PII** sobe no compose (`presidio-analyzer` custom pt-BR +
+  `presidio-anonymizer` oficial). Detalhes/entidades/trade-offs:
+  [`presidio/README.md`](presidio/README.md).
+- As demais são **built-in** do LiteLLM (`litellm_content_filter` + callback de
+  injeção) — não precisam de container extra nem de Enterprise.
+
+**Ponto cego (importante):** os guardrails atuam no **texto**, não no **anexo**
+(PDF/imagem em base64). Documento cru enviado a modelo de visão passa **sem
+máscara** — ver o roadmap em [`presidio/README.md`](presidio/README.md).
+
+**Ajustar por modelo:** `default_on: false` + `guardrails: [...]` no `litellm_params`
+de cada modelo liga/desliga por alias (validado no `main-latest`; quebra em
+versões ≤ 1.80.10).
+
 ## Notas
 
 - **Streaming**: mesmo via LiteLLM, os modelos OCI mandam prompts-JSON como

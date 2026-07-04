@@ -1,0 +1,4 @@
+presidio-analyzer
+flask
+gunicorn
+phonenumbers

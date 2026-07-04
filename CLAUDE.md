@@ -78,7 +78,8 @@ Este repo já foi limpo com cuidado. **Nunca** versione chave/credencial.
 | `src/app/components/llm-analysis/` | UI do combo de modelo + envio de arquivo à IA |
 | `server/index.js` | Proxy Node: registry de modelos (`MODELS[]`), roteamento por provider, `GET /api/models`, `POST /api/analyze` |
 | `server/README.md` | Detalhes do proxy, OCI compat, smoke tests |
-| `litellm/config.yaml` | `model_list` do gateway (aliases → `oci/...`, `openai/...`) |
+| `litellm/config.yaml` | `model_list` do gateway (aliases → `oci/...`, `openai/...`) + bloco `guardrails:` (Presidio) |
+| `litellm/presidio/` | Guardrail de PII/LGPD: analyzer custom (pt-BR + recognizers BR com DV) + anonymizer oficial |
 | `litellm/README.md` | Subir o gateway, UI admin, notas de OCI nativo/streaming |
 | `README.md` (raiz) | Doc completa da POC local (pipeline de OCR, robustez, roadmap) |
 
@@ -101,6 +102,18 @@ Este repo já foi limpo com cuidado. **Nunca** versione chave/credencial.
   proxy via `/api` (ver `proxy.conf.json`), então tudo cabe numa URL só: `:17000`.
 - **CleanPredict** é guardrail opcional (roda ao lado da chamada, não é proxy de
   LLM). Sem `CLEANPREDICT_*` no `.env`, o proxy vai direto ao modelo.
+- **Guardrails de LGPD (4 camadas, todas OSS, `default_on` no `litellm/config.yaml`):**
+  **PII** (`presidio-lgpd-br`: CPF/CNPJ/PIS com DV, e-mail, nome… mascara e
+  re-hidrata na resposta) + **segredos** (`secrets-input`: `sk-`/AWS/GitHub/PEM) +
+  **prompt injection** (callback `detect_prompt_injection`, bloqueia) + **moderação
+  de saída** (`moderation-output`, bloqueia conteúdo nocivo). Mais **log mascarado**
+  (`turn_off_message_logging`). A PII sobe no compose (`presidio-analyzer` custom +
+  `presidio-anonymizer` oficial); o resto é built-in do LiteLLM.
+  - **Atuam no TEXTO, não no anexo** (PDF/imagem base64 passa sem máscara) →
+    fluxo seguro é OCR local → mascara texto → envia texto.
+  - **Cobre só o tráfego pelo LiteLLM**; chamadas diretas do proxy Node (OCI-compat,
+    OpenAI) não passam. Liga/desliga **por modelo** via `guardrails:` no
+    `litellm_params` (precisa `default_on:false`). Detalhes: `litellm/presidio/README.md`.
 
 ## Ao usar a API da Anthropic no código
 
